@@ -1,7 +1,9 @@
 FROM docker.io/python:3.14.2-alpine3.23
 
 RUN adduser --no-create-home --disabled-password appuser && \
-    apk update --no-cache
+    sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
+    apk update --no-cache && \
+    apk add --no-cache openssl
 
 WORKDIR /app
 EXPOSE 8080/tcp
@@ -22,6 +24,7 @@ ADD --chmod=0644 https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css /
 RUN python3 -m compileall .
 
 USER appuser
+
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--no-server-header"]
 
 HEALTHCHECK --start-period=10s --interval=3m --timeout=1s \
