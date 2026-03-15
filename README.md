@@ -6,10 +6,13 @@ A self-hosted ACME server with a built-in CA and optional web interface.
 
 ## Features
 
-* ✅ **ACME Server** implementation (supports `http-01` challenge)
-* 🔐 **Built-in CA** to sign/revoke certificates (can be replaced with an external CA), CA rollover is supported
-* ✉️ **Mail notifications**  (for account creation, expiring and expired certificates) with customizable templates
+* ✅ **ACME Server** implementation (supports `http-01` and `dns-01` challenges)
+* 🚀 **Wildcard Support** & **Key Roll-over** (RFC 8555 compliant)
+* 🔐 **Built-in CA** to sign/revoke certificates (CA rollover, ARI, and revocation reasons supported)
+* 🔑 **External Account Binding (EAB)** support (configurable)
+* ✉️ **Mail notifications** (for account creation, expiring and expired certificates) with customizable templates
 * 🌐 **Web UI** (certificate and domain log) with customizable templates
+* 🛡️ **Auto-TLS**: Automatic Root CA initialization and server certificate issuance for HTTPS
 
 Tested with [Certbot](https://certbot.eff.org/), [Traefik](https://traefik.io/traefik/), [Caddy](https://caddyserver.com/), [uacme](https://github.com/ndilieto/uacme), [acme.sh](https://github.com/acmesh-official/acme.sh).
 
@@ -77,7 +80,7 @@ networks:
 
 Serve the app securely using a TLS-terminating reverse proxy (like Apache, Nginx, Traefik or Caddy), e.g. at https://acme.mydomain.org
 
-The app listens on port **8080** for HTTP traffic.
+The app listens on port **8080** for HTTP and **8443** for HTTPS.
 
 > For a quick test you can skip the reverse proxy and expose the service directly:
 > ```yaml
@@ -111,7 +114,14 @@ docker run -it --rm certbot/certbot certonly --server https://acme.mydomain.org/
 | ACME_MAIL_REQUIRED        | `True`       | whether the user has to provide a mail address to obtain certificates via the ACME client (recommended)        |
 | ACME_MAIL_TARGET_REGEX        | any mail address       | restrict the format of user-provided mail addresses. E.g. `[^@]+@mydomain\.org` only allows mail addresses from mydomain.org             |
 | ACME_TARGET_DOMAIN_REGEX        | any non-wildcard domain name       | restrict the domain names for which certificates can be requested via ACME. E.g. `[^\*]+\.mydomain\.org` only allows domain names from mydomain.org             |
+| ACME_DNS_SERVERS        | `[]`       | Optional list of DNS servers for `dns-01` validation (e.g. `["8.8.8.8", "1.1.1.1"]`)             |
+| ACME_EXTERNAL_ACCOUNT_REQUIRED        | `False`       | Whether to enforce External Account Binding for new accounts             |
 | CA_ENABLED        | `True`       | whether the internal CA is enabled, set this to false when providing a custom CA implementation  |
+| CA_ROOT_CA_COMMON_NAME        | `ACME Root CA`       | Common Name for the auto-generated Root CA  |
+| CA_ROOT_CA_ORGANIZATION        | `ACME Self-Hosted`       | Organization for the auto-generated Root CA  |
+| CA_AUTO_ISSUE_SERVER_CERT        | `True`       | Automatically issue a server certificate for the HTTPS listener  |
+| SSL_KEY_FILE        | `None`       | Path to the private key for the HTTPS listener  |
+| SSL_CERT_FILE        | `None`       | Path to the certificate for the HTTPS listener  |
 | CA_ENCRYPTION_KEY        | will be generated if not provided       | the key to protect the CA private keys at rest (encrypted in the database)  |
 | CA_IMPORT_DIR        | `/import`       | where the *ca.pem* and *ca.key* are initially imported from, see 2. <br>CA rollover is as simple as placing a new cert and key in this directory. The server will detect and import them at startup. |
 | CA_CERT_LIFETIME        | 60 days (`60d`)       | how often certs must be replaced by the ACME client  |
