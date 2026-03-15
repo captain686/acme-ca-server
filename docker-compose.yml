@@ -8,8 +8,8 @@ services:
       - CA_ENCRYPTION_KEY=Ka7prX3ZqESxa79C3kqWOI1cV979B-x7A7NT5-nU2p0=
       - WEB_ENABLE_PUBLIC_LOG=True
       - ACME_MAIL_REQUIRED=False
-      - SSL_CERT_FILE=/app/cert/server.crt
-      - SSL_KEY_FILE=/app/cert/server.key
+      - WEB_SSL_CERT_FILE=/app/cert/server.crt
+      - WEB_SSL_KEY_FILE=/app/cert/server.key
       # --- New Settings ---
       - CA_ROOT_CA_COMMON_NAME=ACME Root CA
       - CA_ROOT_CA_ORGANIZATION=ACME Self-Hosted

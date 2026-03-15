@@ -14,6 +14,8 @@ class WebSettings(BaseSettings):
     enable_public_log: bool = False
     app_title: str = 'ACME CA Server'
     app_description: str = 'Self-hosted ACME CA Server'
+    ssl_cert_file: Optional[Path] = None
+    ssl_key_file: Optional[Path] = None
     model_config = SettingsConfigDict(env_prefix='web_')
 
 
@@ -95,9 +97,6 @@ class Settings(BaseSettings):
     mail: MailSettings = MailSettings()
     web: WebSettings = WebSettings()
     
-    ssl_key_file: Optional[Path] = None
-    ssl_cert_file: Optional[Path] = None
-
     @model_validator(mode='before')
     @classmethod
     def sanitize_values(cls, data: Any) -> Any:
