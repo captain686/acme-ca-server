@@ -29,13 +29,19 @@ async def lifespan(_: FastAPI):
     await db.disconnect()
 
 
+app_title = settings.web.app_title
+app_desc = settings.web.app_description
+
+if app_title == 'ACME CA Server' and settings.ca.root_ca_common_name != 'ACME Root CA':
+    app_title = settings.ca.root_ca_common_name
+
 app = FastAPI(
     lifespan=lifespan,
     version=__version__,
     redoc_url=None,
     docs_url=None,
-    title=settings.web.app_title,
-    description=settings.web.app_description,
+    title=app_title,
+    description=app_desc,
 )
 app.add_middleware(
     web.middleware.SecurityHeadersMiddleware,  # type: ignore[arg-type]

@@ -10,15 +10,18 @@ async def get_directory():
     See RFC 8555 7.1.1 "Directory" <https://www.rfc-editor.org/rfc/rfc8555#section-7.1.1>
     """
 
-    meta = {'website': settings.external_url}
+    meta = {'website': str(settings.external_url), 'externalAccountRequired': settings.acme.external_account_required}
     if settings.acme.terms_of_service_url:
-        meta['termsOfService'] = settings.acme.terms_of_service_url
+        meta['termsOfService'] = str(settings.acme.terms_of_service_url)
+    
+    base = str(settings.external_url).rstrip('/')
     return {
-        'newNonce': f'{settings.external_url}acme/new-nonce',
-        'newAccount': f'{settings.external_url}acme/new-account',
-        'newOrder': f'{settings.external_url}acme/new-order',
-        'revokeCert': f'{settings.external_url}acme/revoke-cert',
-        'keyChange': f'{settings.external_url}acme/key-change',
+        'newNonce': f'{base}/acme/new-nonce',
+        'newAccount': f'{base}/acme/new-account',
+        'newOrder': f'{base}/acme/new-order',
+        'revokeCert': f'{base}/acme/revoke-cert',
+        'keyChange': f'{base}/acme/key-change',
+        'renewalInfo': f'{base}/acme/renewal-info/',
         # newAuthz: is not supported
         'meta': meta,
     }

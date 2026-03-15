@@ -6,7 +6,7 @@ RUN adduser --no-create-home --disabled-password appuser && \
     apk add --no-cache openssl
 
 WORKDIR /app
-EXPOSE 8080/tcp
+EXPOSE 8080/tcp 8443/tcp
 ENV PYTHONUNBUFFERED=True
 
 COPY requirements.txt .
@@ -25,7 +25,8 @@ RUN python3 -m compileall .
 
 USER appuser
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--no-server-header"]
+WORKDIR /app
+CMD ["python", "run.py"]
 
 HEALTHCHECK --start-period=10s --interval=3m --timeout=1s \
   CMD wget --quiet --spider http://127.0.0.1:8080/acme/directory || exit 1

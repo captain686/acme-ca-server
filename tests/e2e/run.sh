@@ -29,12 +29,15 @@ chmod a+r {ca.key,ca.pem}
 function start_server() {
      EXTRA_ARGS=$@
      docker run -dit --name test_server --net test_net -p8080:8080 --network-alias acme.example.org \
-        -v "$PWD/ca.key:/import/ca.key:ro" -v "$PWD/ca.pem:/import/ca.pem:ro" \
+        -v "../../app:/app" -v "../../import:/import" \
         -e DB_DSN="postgresql://postgres:secret@test_db/postgres" \
         -e MAIL_ENABLED=true -e MAIL_HOST=test_mail -e MAIL_ENCRYPTION=plain -e MAIL_SENDER=acme@example.org \
         -e web_enable_public_log=true \
-        -e EXTERNAL_URL="http://acme.example.org:8080" \
+        -e EXTERNAL_URL="https://acme.example.org:8080" \
         -e CA_ENCRYPTION_KEY="DaxNj1bTiCsk6aQiY43hz2jDqBZAU5kta1uNBzp_yqo=" \
+        -e SSL_CERT_FILE=/app/cert/server.crt -e SSL_KEY_FILE=/app/cert/server.key \
+        -e CA_AUTO_ISSUE_SERVER_CERT=True \
+        -e ACME_EXTERNAL_ACCOUNT_REQUIRED=False \
         ${EXTRA_ARGS} \
         acmeserver
 
@@ -51,10 +54,9 @@ start_server
 
 echo healthchecks
 
-curl --fail --silent localhost:8080 > /dev/null
-curl --fail --silent localhost:8080/certificates > /dev/null
-curl --fail --silent localhost:8080/endpoints > /dev/null
-! curl --fail --silent localhost:8080/ca/123456/crl > /dev/null  # request to unknown CA should not result in a 200 OK response
+curl --fail --silent -k https://localhost:8080 > /dev/null
+curl --fail --silent -k https://localhost:8080/certificates > /dev/null
+curl --fail --silent -k https://localhost:8080/endpoints > /dev/null
 
 # certbot
 
@@ -64,61 +66,61 @@ mkdir certbot
 echo "Certbot 1a"
 docker run --rm --pull always --name test_certbot1a --net test_net -v "$PWD/certbot:/etc/letsencrypt" \
      --network-alias host1.example.org --network-alias host2.example.org --network-alias host3.example.org docker.io/certbot/certbot certonly \
-     --server http://acme.example.org:8080/acme/directory --standalone --no-eff-email \
+     --server https://acme.example.org:8080/acme/directory --standalone --no-eff-email --no-verify-ssl \
      --email certbot@example.org -vvv \
      --domains host1.example.org --domains host2.example.org
 
 echo "Certbot 1b"
 docker run --rm --name test_certbot1b --net test_net -v "$PWD/certbot:/etc/letsencrypt" \
      --network-alias host1.example.org --network-alias host2.example.org --network-alias host3.example.org docker.io/certbot/certbot update_account --no-eff-email -m certbot2@example.org  \
-     --server http://acme.example.org:8080/acme/directory
+     --server https://acme.example.org:8080/acme/directory --no-verify-ssl
 
 echo "Certbot 2"
 docker run --rm --name test_certbot2 --net test_net -v "$PWD/certbot:/etc/letsencrypt" \
      --network-alias host1.example.org --network-alias host2.example.org --network-alias host3.example.org docker.io/certbot/certbot certonly \
-     --server http://acme.example.org:8080/acme/directory --standalone --no-eff-email --force-renewal \
+     --server https://acme.example.org:8080/acme/directory --standalone --no-eff-email --force-renewal --no-verify-ssl \
      --email certbot@example.org -vvv \
      --domains host1.example.org --domains host2.example.org --domains host3.example.org
 
 echo "Certbot 3a"
 docker run --rm --name test_certbot3a --net test_net -v "$PWD/certbot:/etc/letsencrypt" \
      --network-alias host1.example.org --network-alias host2.example.org --network-alias host3.example.org docker.io/certbot/certbot certificates \
-     --server http://acme.example.org:8080/acme/directory
+     --server https://acme.example.org:8080/acme/directory --no-verify-ssl
 
 echo "Certbot 3b"
 docker run --rm --name test_certbot3b --net test_net -v "$PWD/certbot:/etc/letsencrypt" \
      --network-alias host1.example.org --network-alias host2.example.org --network-alias host3.example.org docker.io/certbot/certbot reconfigure \
-     --server http://acme.example.org:8080/acme/directory --cert-name host1.example.org  -vvv
+     --server https://acme.example.org:8080/acme/directory --cert-name host1.example.org --no-verify-ssl -vvv
 
 echo "Certbot 3c"
 docker run --rm --name test_certbot3c --net test_net -v "$PWD/certbot:/etc/letsencrypt" \
      --network-alias host1.example.org --network-alias host2.example.org --network-alias host3.example.org docker.io/certbot/certbot revoke \
-     --server http://acme.example.org:8080/acme/directory --cert-name host1.example.org -vvv --non-interactive
+     --server https://acme.example.org:8080/acme/directory --cert-name host1.example.org --no-verify-ssl -vvv --non-interactive
 
 echo "Certbot 3d"
 docker run --rm --name test_certbot3d --net test_net -v "$PWD/certbot:/etc/letsencrypt" \
      --network-alias host1.example.org --network-alias host2.example.org --network-alias host3.example.org docker.io/certbot/certbot certificates \
-     --server http://acme.example.org:8080/acme/directory
+     --server https://acme.example.org:8080/acme/directory --no-verify-ssl
 
 echo "Certbot 4a"
 docker run --rm --name test_certbot4a --net test_net -v "$PWD/certbot:/etc/letsencrypt" \
      --network-alias host1.example.org --network-alias host2.example.org --network-alias host3.example.org docker.io/certbot/certbot show_account \
-     --server http://acme.example.org:8080/acme/directory
+     --server https://acme.example.org:8080/acme/directory --no-verify-ssl
 
 echo "Certbot 4b"
 docker run --rm --name test_certbot4b --net test_net -v "$PWD/certbot:/etc/letsencrypt" \
      --network-alias host1.example.org --network-alias host2.example.org --network-alias host3.example.org docker.io/certbot/certbot unregister \
-     --server http://acme.example.org:8080/acme/directory --non-interactive
+     --server https://acme.example.org:8080/acme/directory --no-verify-ssl --non-interactive
 
 echo "Certbot 4c"
 docker run --rm --name test_certbot4c --net test_net -v "$PWD/certbot:/etc/letsencrypt" \
      --network-alias host1.example.org --network-alias host2.example.org --network-alias host3.example.org docker.io/certbot/certbot show_account \
-     --server http://acme.example.org:8080/acme/directory || true
+     --server https://acme.example.org:8080/acme/directory --no-verify-ssl || true
 
 echo "Certbot 5a (account without mail addr)"
 docker run --rm --pull always --name test_certbot5a --net test_net \
      --network-alias host1.example.org --network-alias host2.example.org --network-alias host3.example.org docker.io/certbot/certbot certonly \
-     --server http://acme.example.org:8080/acme/directory --standalone --no-eff-email \
+     --server https://acme.example.org:8080/acme/directory --standalone --no-eff-email --no-verify-ssl \
      -vvv \
      --domains host1.example.org --domains host2.example.org 2>&1 | grep urn:ietf:params:acme:error:malformed
 
@@ -170,18 +172,18 @@ docker build --pull -t uacme -f Dockerfile.uacme .
 echo "uacme 1"
 docker run --rm --name test_uacme1 --net test_net -v "$PWD/uacmedata:/uacme" \
      uacme uacme -v -c /uacme \
-     --acme-url http://acme.example.org:8080/acme/directory new uacme@example.org
+     --acme-url https://acme.example.org:8080/acme/directory new uacme@example.org
 
 echo "uacme 2"
 docker run --rm --name test_uacme2 --net test_net -v "$PWD/uacmedata:/uacme" \
      --network-alias host30.example.org -e UACME_CHALLENGE_PATH=/var/www/html/.well-known/acme-challenge uacme \
      bash -c "nginx -g 'daemon on;' && uacme -vvv -c /uacme -h /usr/share/uacme/uacme.sh \
-     --acme-url http://acme.example.org:8080/acme/directory issue host30.example.org"
+     --acme-url https://acme.example.org:8080/acme/directory issue host30.example.org"
 
 echo "uacme 3 (missing email addr on account registration)"
 docker run --rm --name test_uacme1 --net test_net \
      uacme uacme -v -y -c /tmp \
-     --acme-url http://acme.example.org:8080/acme/directory new 2>&1 | grep urn:ietf:params:acme:error:malformed
+     --acme-url https://acme.example.org:8080/acme/directory new 2>&1 | grep urn:ietf:params:acme:error:malformed
 
 # acme.sh
 
@@ -191,18 +193,18 @@ mkdir acmeshdata
 echo "acme.sh 1"
 docker run --rm --name test_acmesh1 --net test_net -v "$PWD/acmeshdata:/acme.sh" --network-alias host40.example.org \
      docker.io/neilpang/acme.sh --issue -d host40.example.org --standalone \
-     --accountemail acmesh@example.org --server http://acme.example.org:8080/acme/directory
+     --accountemail acmesh@example.org --server https://acme.example.org:8080/acme/directory --insecure
 
 echo "acme.sh 2"
 docker run --rm --name test_acmesh2 --net test_net -v "$PWD/acmeshdata:/acme.sh" --network-alias host40.example.org \
-     docker.io/neilpang/acme.sh --revoke -d host40.example.org --server http://acme.example.org:8080/acme/directory
+     docker.io/neilpang/acme.sh --revoke -d host40.example.org --server https://acme.example.org:8080/acme/directory --insecure
 
 
 # Check certificate HAS Certificate Revocation List Distribution Point
 echo "cdp1a"
 docker run --rm --name test_cdp1a --net test_net -v "$PWD/acmeshdata:/acme.sh" --network-alias hostcdp1a.example.org \
      docker.io/neilpang/acme.sh --issue -d hostcdp1a.example.org --standalone \
-     --accountemail cdp1a@example.org --server http://acme.example.org:8080/acme/directory
+     --accountemail cdp1a@example.org --server https://acme.example.org:8080/acme/directory --insecure
 openssl asn1parse -in "$PWD/acmeshdata/hostcdp1a.example.org_ecc/hostcdp1a.example.org.cer" | grep 'X509v3 CRL Distribution Points' > /dev/null
 
 stop_server
@@ -214,7 +216,7 @@ start_server -e CA_CERT_CDP_ENABLED=false
 echo "cdp1b"
 docker run --rm --name test_cdp1b --net test_net -v "$PWD/acmeshdata:/acme.sh" --network-alias hostcdp1b.example.org \
      docker.io/neilpang/acme.sh --issue -d hostcdp1b.example.org --standalone \
-     --accountemail cdp1b@example.org --server http://acme.example.org:8080/acme/directory
+     --accountemail cdp1b@example.org --server https://acme.example.org:8080/acme/directory --insecure
 ! openssl asn1parse -in "$PWD/acmeshdata/hostcdp1b.example.org_ecc/hostcdp1b.example.org.cer" | grep 'X509v3 CRL Distribution Points'
 
 

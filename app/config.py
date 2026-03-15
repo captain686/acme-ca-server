@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Literal, Optional, Pattern
 
 from logger import logger
+from cryptography.fernet import Fernet
 from pydantic import AnyHttpUrl, EmailStr, PostgresDsn, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -23,6 +24,9 @@ class CaSettings(BaseSettings):
     cert_cdp_enabled: bool = True
     encryption_key: Optional[SecretStr] = None  # encryption of private keys in database
     import_dir: Path = '/import'  # type: ignore[assignment]
+    root_ca_common_name: str = "ACME Root CA"
+    root_ca_organization: str = "ACME Self-Hosted"
+    auto_issue_server_cert: bool = True
 
     model_config = SettingsConfigDict(env_prefix='ca_')
 
@@ -30,8 +34,6 @@ class CaSettings(BaseSettings):
     def valid_check(self) -> 'CaSettings':
         if self.enabled:
             if not self.encryption_key:
-                from cryptography.fernet import Fernet  # pylint: disable=import-outside-toplevel
-
                 logger.fatal('Env Var ca_encryption_key is missing, use this freshly generated key: %s', Fernet.generate_key().decode())
                 sys.exit(1)
             if self.cert_lifetime.days < 1:
@@ -78,7 +80,9 @@ class AcmeSettings(BaseSettings):
     terms_of_service_url: AnyHttpUrl | None = None
     mail_target_regex: Pattern = r'[^@]+@[^@]+\.[^@]+'  # type: ignore[assignment]
     mail_required: bool = True
-    target_domain_regex: Pattern = r'[^\*]+\.[^\.]+'  # type: ignore[assignment]  # disallow wildcard
+    target_domain_regex: Pattern = r'(\*\.)?[^\*]+\.[^\.]+'  # type: ignore[assignment]  # allow wildcard
+    external_account_required: bool = False
+    dns_servers: list[str] = []
 
     model_config = SettingsConfigDict(env_prefix='acme_')
 
@@ -90,6 +94,9 @@ class Settings(BaseSettings):
     ca: CaSettings = CaSettings()
     mail: MailSettings = MailSettings()
     web: WebSettings = WebSettings()
+    
+    ssl_key_file: Optional[Path] = None
+    ssl_cert_file: Optional[Path] = None
 
     @model_validator(mode='before')
     @classmethod
@@ -102,7 +109,7 @@ class Settings(BaseSettings):
     def valid_check(self) -> 'Settings':
         if self.external_url.scheme != 'https':
             logger.warning('Env Var "external_url" is not HTTPS. This is insecure!')
-        if self.mail.warn_before_cert_expires and self.ca.enabled and self.mail.enabled:
+        if self.mail.warn_before_cert_expires is not False and self.ca.enabled and self.mail.enabled:
             if self.mail.warn_before_cert_expires >= self.ca.cert_lifetime:
                 raise ValueError('Env var web_warn_before_cert_expires cannot be greater than ca_cert_lifetime')
             if self.mail.warn_before_cert_expires.days > self.ca.cert_lifetime.days / 2:

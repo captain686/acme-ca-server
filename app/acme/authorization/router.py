@@ -24,9 +24,8 @@ async def view_or_update_authorization(
     async with db.transaction(readonly=True) as sql:
         record = await sql.record(
             """
-            select authz.status, ord.status, ord.expires_at, authz.domain, chal.id, chal.token, chal.status, chal.validated_at
+            select authz.status, ord.status, ord.expires_at, authz.domain
             from authorizations authz
-            join challenges chal on chal.authz_id = authz.id
             join orders ord on authz.order_id = ord.id
             where authz.id = $1 and ord.account_id = $2
             """,
@@ -34,8 +33,10 @@ async def view_or_update_authorization(
             data.account_id,
         )
     if record:
-        authz_status, order_status, expires_at, domain, chal_id, chal_token, chal_status, chal_validated_at = record
-        if data.payload and data.payload.status == 'deactivated':  # deactivate authz
+        authz_status, order_status, expires_at, domain = record
+        
+        # Payload status check (deactivate)
+        if data.payload and data.payload.status == 'deactivated':
             if authz_status in ['pending', 'valid'] and order_status in ['pending', 'ready']:
                 async with db.transaction() as sql:
                     await sql.exec(
@@ -46,19 +47,28 @@ async def view_or_update_authorization(
                         authz_id,
                     )
                     authz_status = await sql.value("""update authorizations set status = 'deactivated' where id = $1 returning status""", authz_id)
-        chal = {
-            'type': 'http-01',
-            'url': f'{settings.external_url}acme/challenges/{chal_id}',
-            'token': chal_token,
-            'status': chal_status,
-            'validated': chal_validated_at,
-        }
+
+        # Fetch all challenges for this authz
+        challenges = []
+        async with db.transaction(readonly=True) as sql:
+            async for row in sql(
+                """select id, type, token, status, validated_at from challenges where authz_id = $1""", 
+                authz_id
+            ):
+                chal_id, chal_type, chal_token, chal_status, chal_validated_at = row
+                challenges.append({
+                    'type': chal_type,
+                    'url': f'{str(settings.external_url).rstrip("/")}/acme/challenges/{chal_id}',
+                    'token': chal_token,
+                    'status': chal_status,
+                    'validated': chal_validated_at,
+                })
 
         return {
             'status': authz_status,
             'expires': expires_at,
             'identifier': {'type': 'dns', 'value': domain},
-            'challenges': [{k: v for k, v in chal.items() if v is not None}],
+            'challenges': [{k: v for k, v in c.items() if v is not None} for c in challenges],
         }
     else:
         raise ACMEException(status_code=status.HTTP_404_NOT_FOUND, exctype='malformed', detail='specified authorization not found for current account', new_nonce=data.new_nonce)

@@ -1,13 +1,14 @@
 import asyncio
+import json
 import secrets
 from datetime import datetime
 from typing import Annotated, Literal, Optional
 
+from jwcrypto import jwk, common
 import db
 from ca import service as ca_service
 from config import settings
 from fastapi import APIRouter, Depends, Response, status
-from jwcrypto.common import base64url_decode
 from logger import logger
 from pydantic import BaseModel, conlist, constr
 
@@ -43,16 +44,17 @@ def order_response(
     not_valid_after: Optional[datetime] = None,
     cert_serial_number: Optional[str] = None,
 ):
+    base = str(settings.external_url).rstrip('/')
     return {
         'status': status,
         'expires': expires_at,
         'identifiers': [{'type': 'dns', 'value': domain} for domain in domains],
-        'authorizations': [f'{settings.external_url}acme/authorizations/{authz_id}' for authz_id in authz_ids],
-        'finalize': f'{settings.external_url}acme/orders/{order_id}/finalize',
+        'authorizations': [f'{base}/acme/authorizations/{authz_id}' for authz_id in authz_ids],
+        'finalize': f'{base}/acme/orders/{order_id}/finalize',
         'error': error.value if error else None,
         'notBefore': not_valid_before,
         'notAfter': not_valid_after,
-        'certificate': f'{settings.external_url}acme/certificates/{cert_serial_number}' if cert_serial_number else None,
+        'certificate': f'{base}/acme/certificates/{cert_serial_number}' if cert_serial_number else None,
     }
 
 
@@ -68,16 +70,43 @@ async def submit_order(response: Response, data: Annotated[RequestData[NewOrderP
             new_nonce=data.new_nonce,
         )
 
-    domains: list[str] = list({identifier.value for identifier in data.payload.identifiers})  # deduplicate domains
+    raw_domains: list[str] = list({identifier.value for identifier in data.payload.identifiers})  # deduplicate domains
+    
+    # Map domain to base domain (for wildcards)
+    authz_domains = {}
+    for d in raw_domains:
+        if d.startswith('*.'):
+            base_d = d.removeprefix('*.')
+            authz_domains[d] = base_d
+        else:
+            authz_domains[d] = d
 
     def generate_tokens_sync(domains):
         order_id = secrets.token_urlsafe(16)
-        authz_ids = {domain: secrets.token_urlsafe(16) for domain in domains}
-        chal_ids = {domain: secrets.token_urlsafe(16) for domain in domains}
-        chal_tkns = {domain: secrets.token_urlsafe(32) for domain in domains}
-        return order_id, authz_ids, chal_ids, chal_tkns
+        # Authz IDs for each unique base domain
+        unique_base_domains = list(set(authz_domains.values()))
+        authz_ids = {domain: secrets.token_urlsafe(16) for domain in unique_base_domains}
+        
+        # Challenges: DNS-01 for wildcard, both for normal
+        challenge_data = [] # list of (id, authz_id, type, token)
+        for raw_d in domains:
+            base_d = authz_domains[raw_d]
+            authz_id = authz_ids[base_d]
+            
+            # DNS-01 is mandatory for wildcards and good for all
+            chal_id_dns = secrets.token_urlsafe(16)
+            chal_tkn_dns = secrets.token_urlsafe(32)
+            challenge_data.append((chal_id_dns, authz_id, 'dns-01', chal_tkn_dns))
+            
+            # HTTP-01 is only allowed for non-wildcards
+            if not raw_d.startswith('*.'):
+                chal_id_http = secrets.token_urlsafe(16)
+                chal_tkn_http = secrets.token_urlsafe(32)
+                challenge_data.append((chal_id_http, authz_id, 'http-01', chal_tkn_http))
+                
+        return order_id, authz_ids, challenge_data
 
-    order_id, authz_ids, chal_ids, chal_tkns = await asyncio.to_thread(generate_tokens_sync, domains)
+    order_id, authz_ids, challenge_data = await asyncio.to_thread(generate_tokens_sync, raw_domains)
 
     async with db.transaction() as sql:
         order_status, expires_at = await sql.record(
@@ -87,19 +116,19 @@ async def submit_order(response: Response, data: Annotated[RequestData[NewOrderP
         )
         await sql.execmany(
             """insert into authorizations (id, order_id, domain) values ($1, $2, $3)""",
-            *[(authz_ids[domain], order_id, domain) for domain in domains],
+            *[(authz_id, order_id, domain) for domain, authz_id in authz_ids.items()],
         )
         await sql.execmany(
-            """insert into challenges (id, authz_id, token) values ($1, $2, $3)""",
-            *[(chal_ids[domain], authz_ids[domain], chal_tkns[domain]) for domain in domains],
+            """insert into challenges (id, authz_id, type, token) values ($1, $2, $3, $4)""",
+            *challenge_data,
         )
 
-    response.headers['Location'] = f'{settings.external_url}acme/orders/{order_id}'
+    response.headers['Location'] = f'{str(settings.external_url).rstrip("/")}/acme/orders/{order_id}'
     return order_response(
         status=order_status,
         expires_at=expires_at,
-        domains=domains,
-        authz_ids=authz_ids.values(),
+        domains=raw_domains,
+        authz_ids=list(authz_ids.values()),
         order_id=order_id,
     )
 
@@ -124,7 +153,7 @@ async def view_order(response: Response, order_id: str, data: Annotated[RequestD
     else:
         acme_error = None
 
-    response.headers['Location'] = f'{settings.external_url}acme/orders/{order_id}'  # see #139
+    response.headers['Location'] = f'{str(settings.external_url).rstrip("/")}/acme/orders/{order_id}'  # see #139
     return order_response(
         status=order_status,
         expires_at=expires_at,
@@ -174,7 +203,7 @@ async def finalize_order(response: Response, order_id: str, data: Annotated[Requ
     domains = [domain for authz_id, domain in records]
     authz_ids = [authz_id for authz_id, domain in records]
 
-    csr_bytes = base64url_decode(data.payload.csr)
+    csr_bytes = common.base64url_decode(data.payload.csr)
 
     csr, csr_pem, subject_domain, san_domains = await check_csr(csr_bytes, ordered_domains=domains, new_nonce=data.new_nonce)
 

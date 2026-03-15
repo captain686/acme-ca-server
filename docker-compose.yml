@@ -1,0 +1,45 @@
+services:
+  app:
+    build: .
+    hostname: acme-ca-server
+    environment:
+      - EXTERNAL_URL=https://catest.ltd:8080
+      - DB_DSN=postgresql://postgres:secret@db/postgres
+      - CA_ENCRYPTION_KEY=Ka7prX3ZqESxa79C3kqWOI1cV979B-x7A7NT5-nU2p0=
+      - WEB_ENABLE_PUBLIC_LOG=True
+      - ACME_MAIL_REQUIRED=False
+      - SSL_CERT_FILE=/app/cert/server.crt
+      - SSL_KEY_FILE=/app/cert/server.key
+      # --- New Settings ---
+      - CA_ROOT_CA_COMMON_NAME=ACME Root CA
+      - CA_ROOT_CA_ORGANIZATION=ACME Self-Hosted
+      - CA_AUTO_ISSUE_SERVER_CERT=True
+    depends_on:
+      db:
+        condition: service_started
+    ports:
+      - 8080:8080
+      - 8443:8443
+    networks:
+      - ca_network
+    volumes:
+      - ./app:/app
+      - ./import:/import
+
+    mem_limit: 250m
+    restart: always
+
+  db:
+    image: postgres:16-alpine
+    hostname: db
+    environment:
+      POSTGRES_PASSWORD: secret
+    networks:
+      - ca_network
+    volumes:
+      - ./db:/var/lib/postgresql/data
+    mem_limit: 250m
+
+networks:
+  ca_network:
+    driver: "bridge"

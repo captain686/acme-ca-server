@@ -18,7 +18,7 @@ async def verify_challenge(response: Response, chal_id: str, data: Annotated[Req
     async with db.transaction() as sql:
         record = await sql.record(
             """
-            select chal.authz_id, chal.error, chal.status, authz.status, authz.domain, chal.validated_at, chal.token, ord.id, ord.status from challenges chal
+            select chal.authz_id, chal.error, chal.status, authz.status, authz.domain, chal.validated_at, chal.token, ord.id, ord.status, chal.type from challenges chal
             join authorizations authz on authz.id = chal.authz_id
             join orders ord on authz.order_id = ord.id
             where chal.id = $1 and ord.account_id = $2 and ord.expires_at > now()
@@ -33,7 +33,7 @@ async def verify_challenge(response: Response, chal_id: str, data: Annotated[Req
                 detail='specified challenge not available for current account',
                 new_nonce=data.new_nonce,
             )
-        authz_id, chal_err, chal_status, authz_status, domain, chal_validated_at, token, order_id, order_status = record
+        authz_id, chal_err, chal_status, authz_status, domain, chal_validated_at, token, order_id, order_status, chal_type = record
         if order_status == 'invalid':
             await sql.exec("""update authorizations set status = 'invalid' where id = $1""", authz_id)
             await sql.value(
@@ -63,12 +63,12 @@ async def verify_challenge(response: Response, chal_id: str, data: Annotated[Req
         acme_error = None
 
     # use append because there can be multiple Link-Headers with different rel targets
-    response.headers.append('Link', f'<{settings.external_url}authorization/{authz_id}>;rel="up"')
+    response.headers.append('Link', f'<{settings.external_url}acme/authorizations/{authz_id}>;rel="up"')
 
     if must_solve_challenge:
         err: Literal[False] | ACMEException
         try:
-            await service.check_challenge_is_fulfilled(domain=domain, token=token, jwk=data.key, new_nonce=data.new_nonce)
+            await service.check_challenge_is_fulfilled(domain=domain, token=token, jwk=data.key, type=chal_type, new_nonce=data.new_nonce)
             err = False
         except ACMEException as e:
             err = e
@@ -104,6 +104,8 @@ async def verify_challenge(response: Response, chal_id: str, data: Annotated[Req
                     err.exc_type,
                     err.detail,
                 )
+                # Note: RFC 8555 says if one challenge fails, authz fails, but other challenges can still be tried?
+                # Actually, usually if one fails, the whole authz is invalid.
                 await sql.exec("""update authorizations set status = 'invalid' where id = $1""", authz_id)
                 await sql.exec(
                     """update orders set status = 'invalid', error=row('unauthorized', 'challenge failed') where id = $1""",
@@ -111,7 +113,7 @@ async def verify_challenge(response: Response, chal_id: str, data: Annotated[Req
                 )
 
     return {
-        'type': 'http-01',
+        'type': chal_type,
         'url': f'{settings.external_url}acme/challenges/{chal_id}',
         'status': chal_status,
         'validated': chal_validated_at,

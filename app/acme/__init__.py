@@ -13,6 +13,7 @@ from .directory import router as directory_router
 from .nonce import cronjob as nonce_cronjob
 from .nonce import router as nonce_router
 from .order import router as order_router
+from .ari import router as ari_router
 
 
 class ACMEResponse(JSONResponse):
@@ -30,6 +31,7 @@ router.include_router(challenge_router.api)
 router.include_router(directory_router.api)
 router.include_router(nonce_router.api)
 router.include_router(order_router.api)
+router.include_router(ari_router.api)
 
 
 async def start_cronjobs():

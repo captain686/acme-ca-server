@@ -10,12 +10,19 @@ from pydantic import constr
 
 template_engine = Environment(loader=FileSystemLoader(Path(__file__).parent / 'templates'), enable_async=True, autoescape=True)
 
-default_params = {  # pylint: disable=duplicate-code
-    'app_title': settings.web.app_title,
-    'app_desc': settings.web.app_description,
-    'web_url': str(settings.external_url),
-    'acme_url': str(settings.external_url).removesuffix('/') + '/acme/directory',
-}
+async def get_default_params():
+    app_title = settings.web.app_title
+    if app_title == 'ACME CA Server' and settings.ca.root_ca_common_name != 'ACME Root CA':
+        app_title = settings.ca.root_ca_common_name
+        
+    return {
+        'app_title': app_title,
+        'app_desc': settings.web.app_description,
+        'web_url': str(settings.external_url),
+        'acme_url': str(settings.external_url).removesuffix('/') + '/acme/directory',
+        'ca_name': settings.ca.root_ca_common_name,
+        'ca_org': settings.ca.root_ca_organization,
+    }
 
 
 api = APIRouter(tags=['web'])
@@ -23,7 +30,8 @@ api = APIRouter(tags=['web'])
 
 @api.get('/', response_class=HTMLResponse)
 async def index():
-    return await template_engine.get_template('index.html').render_async(**default_params)
+    params = await get_default_params()
+    return await template_engine.get_template('index.html').render_async(**params)
 
 
 if settings.web.enable_public_log:
@@ -56,7 +64,8 @@ if settings.web.enable_public_log:
                     certstatus,
                 )
             ]
-        return await template_engine.get_template('cert-log.html').render_async(**default_params, certs=certs, certstatus=certstatus, domainfilter=domainfilter)
+        params = await get_default_params()
+        return await template_engine.get_template('cert-log.html').render_async(**params, certs=certs, certstatus=certstatus, domainfilter=domainfilter)
 
     @api.get('/certificates/{serial_number}', response_class=Response, responses={200: {'content': {'application/pem-certificate-chain': {}}}})
     async def download_certificate(serial_number: constr(pattern='^[0-9A-F]+$')):  # type: ignore[valid-type]
@@ -93,7 +102,8 @@ if settings.web.enable_public_log:
                     domainstatus,
                 )
             ]
-        return await template_engine.get_template('domain-log.html').render_async(**default_params, domains=domains, domainstatus=domainstatus, domainfilter=domainfilter)
+        params = await get_default_params()
+        return await template_engine.get_template('domain-log.html').render_async(**params, domains=domains, domainstatus=domainstatus, domainfilter=domainfilter)
 else:
 
     @api.get('/certificates')

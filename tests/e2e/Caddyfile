@@ -1,12 +1,11 @@
 {
-    acme_ca http://localhost:8080/acme/directory
+    acme_ca https://acme.example.org:8080/acme/directory
     email caddy@example.org
     ocsp_stapling off
 }
 
-http://localhost:8080 {
+https://acme.example.org:8080 {
     reverse_proxy acme.example.org:8080
-
 }
 
 host10.example.org {

@@ -31,6 +31,7 @@ PayloadT = TypeVar('PayloadT')
 
 class RequestData(BaseModel, Generic[PayloadT]):
     payload: PayloadT
+    raw_payload: str # base64url encoded raw payload
     key: jwcrypto.jwk.JWK
     account_id: str | None = None  # None if account does not exist
     new_nonce: str
@@ -91,7 +92,7 @@ class SignedRequest:  # pylint: disable=too-few-public-methods
             raise ACMEException(status_code=status.HTTP_400_BAD_REQUEST, exctype='unauthorized', detail='Requested URL does not match with actually called URL')
 
         if protected_data.kid:  # account exists
-            base_url = f'{settings.external_url}acme/accounts/'
+            base_url = f'{str(settings.external_url).rstrip("/")}/acme/accounts/'
             if not protected_data.kid.startswith(base_url):
                 raise ACMEException(status_code=status.HTTP_400_BAD_REQUEST, exctype='malformed', detail=f'JWS invalid: kid must start with: "{base_url}"')
 
@@ -135,6 +136,6 @@ class SignedRequest:  # pylint: disable=too-few-public-methods
 
         response.headers['Replay-Nonce'] = new_nonce
         # use append because there can be multiple Link-Headers with different rel targets
-        response.headers.append('Link', f'<{settings.external_url}acme/directory>;rel="index"')
+        response.headers.append('Link', f'<{str(settings.external_url).rstrip("/")}/acme/directory>;rel="index"')
 
-        return RequestData[self.payload_model](payload=payload_data, key=key, account_id=account_id, new_nonce=new_nonce)  # type: ignore[name-defined]
+        return RequestData[self.payload_model](payload=payload_data, raw_payload=payload, key=key, account_id=account_id, new_nonce=new_nonce)  # type: ignore[name-defined]
