@@ -1,0 +1,71 @@
+name: ci
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest-docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build testrunner image
+        run: docker build --pull -t testrunner -f tests/pytest/Dockerfile .
+
+      - name: Create docker network
+        run: docker network create test_net
+
+      - name: Start postgres
+        run: |
+          docker run -d \
+            --name test_db \
+            --network test_net \
+            -e POSTGRES_PASSWORD=testpw \
+            postgres:16-alpine
+
+      - name: Wait for postgres ready
+        run: |
+          for i in {1..30}; do
+            if docker exec test_db pg_isready -U postgres >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Postgres did not become ready in time" >&2
+          docker logs test_db >&2 || true
+          exit 1
+
+      - name: Run pytest in docker
+        run: |
+          mkdir -p tests/pytest/coverage
+          docker run --rm \
+            --name test_runner \
+            --network test_net \
+            -e 'db_dsn=postgresql://postgres:testpw@test_db/postgres' \
+            -v "$PWD/tests/pytest/coverage:/runner/htmlcov" \
+            testrunner
+
+      - name: Upload coverage HTML artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-htmlcov
+          path: tests/pytest/coverage
+
+      - name: Dump postgres logs on failure
+        if: failure()
+        run: docker logs test_db
+
+      - name: Cleanup containers/network
+        if: always()
+        run: |
+          docker rm -f test_db || true
+          docker network rm test_net || true

@@ -15,8 +15,12 @@ def test_should_ignore_duplicated_domains(signed_request, directory):
         account_id,
     )
 
+    order_url = response.headers['Location']
+    order_id = order_url.rsplit('/', 1)[-1]
+
     assert response.json()['status'] == 'pending', response.json()
     assert len(response.json()['authorizations']) == 2, response.json()
+    assert response.json()['renewalInfo'] == f'http://localhost:8000/acme/renewal-info/{order_id}'
 
 
 def test_should_reflect_order_on_create(signed_request, directory):
