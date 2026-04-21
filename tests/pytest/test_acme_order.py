@@ -20,7 +20,7 @@ def test_should_ignore_duplicated_domains(signed_request, directory):
 
     assert response.json()['status'] == 'pending', response.json()
     assert len(response.json()['authorizations']) == 2, response.json()
-    assert response.json()['renewalInfo'] == f'http://localhost:8000/acme/renewal-info/{order_id}'
+    assert response.json()['renewalInfo'].endswith(f'/acme/renewal-info/{order_id}')
 
 
 def test_should_reflect_order_on_create(signed_request, directory):

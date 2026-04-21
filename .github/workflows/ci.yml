@@ -24,11 +24,13 @@ jobs:
         run: docker network create test_net
 
       - name: Start postgres
+        env:
+          CI_DB_PASSWORD: ${{ secrets.CI_DB_PASSWORD }}
         run: |
           docker run -d \
             --name test_db \
             --network test_net \
-            -e POSTGRES_PASSWORD=testpw \
+            -e POSTGRES_PASSWORD="$CI_DB_PASSWORD" \
             postgres:16-alpine
 
       - name: Wait for postgres ready
@@ -44,12 +46,14 @@ jobs:
           exit 1
 
       - name: Run pytest in docker
+        env:
+          CI_DB_PASSWORD: ${{ secrets.CI_DB_PASSWORD }}
         run: |
           mkdir -p tests/pytest/coverage
           docker run --rm \
             --name test_runner \
             --network test_net \
-            -e 'db_dsn=postgresql://postgres:testpw@test_db/postgres' \
+            -e db_dsn="postgresql://postgres:${CI_DB_PASSWORD}@test_db/postgres" \
             -v "$PWD/tests/pytest/coverage:/runner/htmlcov" \
             testrunner
 
