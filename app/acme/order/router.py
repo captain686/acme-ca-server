@@ -51,6 +51,7 @@ def order_response(
         'identifiers': [{'type': 'dns', 'value': domain} for domain in domains],
         'authorizations': [f'{base}/acme/authorizations/{authz_id}' for authz_id in authz_ids],
         'finalize': f'{base}/acme/orders/{order_id}/finalize',
+        'renewalInfo': f'{base}/acme/renewal-info/{order_id}',
         'error': error.value if error else None,
         'notBefore': not_valid_before,
         'notAfter': not_valid_after,

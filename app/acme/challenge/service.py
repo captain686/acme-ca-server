@@ -35,11 +35,9 @@ async def check_challenge_is_fulfilled(*, domain: str, token: str, jwk: jwcrypto
             elif type == 'dns-01':
                 # For wildcards, the domain is already the parent domain (e.g. example.com for *.example.com)
                 validation_domain = f'_acme-challenge.{domain}'
-                expected_value = jwcrypto.jws.JWS()._encode_content(jwk.thumbprint().encode()) # Wait, thumbprint needs to be hashed?
-                # RFC 8555: base64(sha256(token || "." || thumbprint))
+                # RFC 8555: base64url(sha256(token || "." || thumbprint))
                 key_auth = f'{token}.{jwk.thumbprint()}'.encode()
                 expected_txt = jwcrypto.common.base64url_encode(hashlib.sha256(key_auth).digest())
-                
                 try:
                     resolver = dns.resolver.Resolver()
                     if settings.acme.dns_servers:
