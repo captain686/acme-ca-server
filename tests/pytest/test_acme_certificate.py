@@ -20,13 +20,14 @@ def test_should_revoke_certificate(signed_request, directory):
     finalize_order_url = response.json()['finalize']
 
     response = signed_request(authz_url, response.headers['Replay-Nonce'], '', account_id)
-    challenge_token = response.json()['challenges'][0]['token']
-    challenge_url = response.json()['challenges'][0]['url']
+    http_challenge = next(ch for ch in response.json()['challenges'] if ch['type'] == 'http-01')
+    challenge_token = http_challenge['token']
+    challenge_url = http_challenge['url']
 
     mock_challenge_file_contents = f'{challenge_token}.{signed_request.account_jwk.thumbprint()}'.rstrip()
 
     with mock.patch(
-        'app.acme.challenge.service.httpx.AsyncClient.get',
+        'acme.challenge.service.httpx.AsyncClient.get',
         return_value=httpx.Response(200, text=mock_challenge_file_contents),
     ) as mock_get:
         response = signed_request(challenge_url, response.headers['Replay-Nonce'], '', account_id)
