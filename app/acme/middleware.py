@@ -1,5 +1,5 @@
 import json
-from typing import Generic, Literal, TypeVar
+from typing import Generic, Literal, TypeVar, get_args, get_origin
 
 import db
 import jwcrypto.jwk
@@ -7,7 +7,7 @@ import jwcrypto.jws
 from config import settings
 from fastapi import Body, Header, Request, Response, status
 from jwcrypto.common import base64url_decode
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, constr, model_validator
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, ValidationError, constr, model_validator
 
 from .exceptions import ACMEException
 from .nonce import service as nonce_service
@@ -76,6 +76,19 @@ class SignedRequest:  # pylint: disable=too-few-public-methods
             return url.removeprefix('http://')
         return url
 
+    @staticmethod
+    def _unwrap_optional_model(payload_model):
+        origin = get_origin(payload_model)
+        if origin is None:
+            return payload_model, False
+
+        args = get_args(payload_model)
+        non_none_args = tuple(arg for arg in args if arg is not type(None))
+        is_optional = len(non_none_args) == 1 and len(non_none_args) != len(args)
+        if is_optional:
+            return non_none_args[0], True
+        return payload_model, False
+
     async def __call__(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
         self,
         request: Request,
@@ -127,8 +140,26 @@ class SignedRequest:  # pylint: disable=too-few-public-methods
         except jwcrypto.jws.InvalidJWSSignature as exc:
             raise ACMEException(status_code=status.HTTP_403_FORBIDDEN, exctype='unauthorized', detail='signature check failed') from exc
 
-        if self.payload_model and payload:
-            payload_data = self.payload_model(**json.loads(base64url_decode(payload)))  # type: ignore[operator]
+        if self.payload_model:
+            payload_model, payload_optional = self._unwrap_optional_model(self.payload_model)
+            if payload == '':
+                if payload_optional:
+                    payload_data = None
+                else:
+                    raise ACMEException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        exctype='malformed',
+                        detail='request payload cannot be empty for this endpoint',
+                    )
+            else:
+                try:
+                    payload_data = payload_model(**json.loads(base64url_decode(payload)))  # type: ignore[operator]
+                except (json.JSONDecodeError, ValidationError) as exc:
+                    raise ACMEException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        exctype='malformed',
+                        detail=str(exc),
+                    ) from exc
         else:
             payload_data = None
 

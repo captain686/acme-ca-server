@@ -23,6 +23,17 @@ def test_should_ignore_duplicated_domains(signed_request, directory):
     assert response.json()['renewalInfo'].endswith(f'/acme/renewal-info/{order_id}')
 
 
+def test_should_reject_empty_payload_on_new_order(signed_request, directory):
+    response = signed_request(directory['newAccount'], signed_request.nonce, {})
+    account_id = response.headers['Location']
+
+    response = signed_request(directory['newOrder'], response.headers['Replay-Nonce'], '', account_id)
+
+    assert response.status_code == 422
+    assert response.headers['Content-Type'] == 'application/problem+json'
+    assert response.json()['type'] == 'urn:ietf:params:acme:error:malformed'
+
+
 def test_should_reflect_order_on_create(signed_request, directory):
     response = signed_request(directory['newAccount'], signed_request.nonce, {})
     account_id = response.headers['Location']

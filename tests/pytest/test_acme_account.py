@@ -99,9 +99,10 @@ def test_should_not_update_account_with_invalid_contact(signed_request, director
     assert response.json()['contact'] == []
     account_url = response.headers['Location']
 
-    with pytest.raises(pydantic.ValidationError) as excinfo:
-        response = signed_request(account_url, signed_request.nonce, {'contact': ['tel:1234']}, account_url)
-    assert 'UpdateAccountPayload' in str(excinfo.value)
+    response = signed_request(account_url, signed_request.nonce, {'contact': ['tel:1234']}, account_url)
+    assert response.status_code == 422
+    assert response.headers['Content-Type'] == 'application/problem+json'
+    assert response.json()['type'] == 'urn:ietf:params:acme:error:malformed'
 
 
 def test_should_return_existing_account(signed_request, directory):
