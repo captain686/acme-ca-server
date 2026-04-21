@@ -54,6 +54,18 @@ def test_should_create_account_without_contact(signed_request, directory):
     assert response.json()['contact'] == []
 
 
+def test_should_view_account_with_post_as_get(signed_request, directory):
+    response = signed_request(directory['newAccount'], signed_request.nonce, {})
+    assert response.status_code == 201
+    account_url = response.headers['Location']
+
+    response = signed_request(account_url, signed_request.nonce, '', account_url)
+    assert response.status_code == 200
+    assert response.json()['status'] == 'valid'
+    assert response.json()['contact'] == []
+    assert response.json()['orders'] == account_url + '/orders'
+
+
 def test_should_update_account_contact(signed_request, directory):
     # create account without mail
     response = signed_request(directory['newAccount'], signed_request.nonce, {})

@@ -146,11 +146,14 @@ class SignedRequest:  # pylint: disable=too-few-public-methods
                 if payload_optional:
                     payload_data = None
                 else:
-                    raise ACMEException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                        exctype='malformed',
-                        detail='request payload cannot be empty for this endpoint',
-                    )
+                    try:
+                        payload_data = payload_model()
+                    except ValidationError as exc:
+                        raise ACMEException(
+                            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            exctype='malformed',
+                            detail='request payload cannot be empty for this endpoint',
+                        ) from exc
             else:
                 try:
                     payload_data = payload_model(**json.loads(base64url_decode(payload)))  # type: ignore[operator]
