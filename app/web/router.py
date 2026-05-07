@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 from typing import Literal
 
@@ -37,8 +38,42 @@ async def index():
 if settings.web.enable_public_log:
 
     @api.get('/certificates', response_class=HTMLResponse)
-    async def certificate_log(domainfilter: str = '', certstatus: Literal['all', 'valid', 'invalid'] = 'all'):
+    async def certificate_log(
+        domainfilter: str = '',
+        certstatus: Literal['all', 'valid', 'invalid'] = 'all',
+        page: int = 1,
+        page_size: int = 100,
+    ):
+        page = max(1, page)
+        page_size = max(1, min(500, page_size))
+        offset = (page - 1) * page_size
+        filter_text = domainfilter.replace('*', '%')
+
         async with db.transaction(readonly=True) as sql:
+            total_count = await sql.value(
+                """
+                with data as (
+                    select
+                        cert.serial_number,
+                        cert.not_valid_before,
+                        cert.not_valid_after,
+                        cert.revoked_at,
+                        (cert.not_valid_after > now() and cert.revoked_at is null) as is_valid,
+                        (cert.not_valid_after - cert.not_valid_before) as lifetime,
+                        (now() - cert.not_valid_before) as age,
+                        coalesce(array_agg(distinct authz.domain order by authz.domain) filter (where authz.domain is not null), '{}'::text[]) as domains
+                    from certificates cert
+                    left join authorizations authz on authz.order_id = cert.order_id
+                    where ($1::text = '' or authz.domain ilike '%' || $1::text || '%')
+                    group by cert.serial_number, cert.not_valid_before, cert.not_valid_after, cert.revoked_at
+                )
+                select count(*) from data
+                where ($2 = 'all' or ($2 = 'valid' and is_valid) or ($2 = 'invalid' and not is_valid))
+                """,
+                filter_text,
+                certstatus,
+            )
+
             certs = [
                 record
                 async for record in sql(
@@ -61,14 +96,34 @@ if settings.web.enable_public_log:
                     select * from data
                     where ($2 = 'all' or ($2 = 'valid' and is_valid) or ($2 = 'invalid' and not is_valid))
                     order by not_valid_after desc
-                    limit 1000
+                    limit $3 offset $4
                     """,
-                    domainfilter.replace('*', '%'),
+                    filter_text,
                     certstatus,
+                    page_size,
+                    offset,
                 )
             ]
+
+        total_count = int(total_count or 0)
+        total_pages = max(1, math.ceil(total_count / page_size))
+        page = min(page, total_pages)
+
         params = await get_default_params()
-        return await template_engine.get_template('cert-log.html').render_async(**params, certs=certs, certstatus=certstatus, domainfilter=domainfilter)
+        return await template_engine.get_template('cert-log.html').render_async(
+            **params,
+            certs=certs,
+            certstatus=certstatus,
+            domainfilter=domainfilter,
+            page=page,
+            page_size=page_size,
+            total_count=total_count,
+            total_pages=total_pages,
+            has_prev=page > 1,
+            has_next=page < total_pages,
+            prev_page=max(1, page - 1),
+            next_page=min(total_pages, page + 1),
+        )
 
     @api.get('/certificates/{serial_number}', response_class=Response, responses={200: {'content': {'application/pem-certificate-chain': {}}}})
     async def download_certificate(serial_number: constr(pattern='^[0-9A-F]+$')):  # type: ignore[valid-type]

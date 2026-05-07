@@ -12,6 +12,7 @@ from .utils import build_csr
 def test_get_certificates_page(testclient: TestClient):
     response = testclient.get('/certificates')
     assert response.status_code == 200, response.text
+    assert 'Page 1 /' in response.text
 
 
 def test_get_domains_page(testclient: TestClient):
@@ -24,11 +25,11 @@ def test_download_non_existent_cert(testclient: TestClient):
     assert response.status_code == 404, response.text
 
 
-def test_certificates_page_contains_issued_certificate(signed_request, directory, testclient: TestClient):
+def _issue_http01_certificate(signed_request, directory, domain: str):
     response = signed_request(directory['newAccount'], signed_request.nonce, {'contact': ['mailto:dummy@example.com']})
     account_id = response.headers['Location']
 
-    response = signed_request(directory['newOrder'], response.headers['Replay-Nonce'], {'identifiers': [{'type': 'dns', 'value': 'example.com'}]}, account_id)
+    response = signed_request(directory['newOrder'], response.headers['Replay-Nonce'], {'identifiers': [{'type': 'dns', 'value': domain}]}, account_id)
     authz_url = response.json()['authorizations'][0]
     finalize_order_url = response.json()['finalize']
 
@@ -46,7 +47,7 @@ def test_certificates_page_contains_issued_certificate(signed_request, directory
         response = signed_request(challenge_url, response.headers['Replay-Nonce'], '', account_id)
         assert response.status_code == 200
 
-    csr = build_csr(['example.com'])
+    csr = build_csr([domain])
     response = signed_request(finalize_order_url, response.headers['Replay-Nonce'], {'csr': jwcrypto.common.base64url_encode(csr.public_bytes(Encoding.DER))}, account_id)
     cert_url = response.json()['certificate']
 
@@ -55,7 +56,33 @@ def test_certificates_page_contains_issued_certificate(signed_request, directory
     cert = x509.load_pem_x509_certificate(cert_response.content)
     cert_serial = hex(cert.serial_number)[2:].upper()
 
+    return cert_serial
+
+
+def test_certificates_page_contains_issued_certificate(signed_request, directory, testclient: TestClient):
+    cert_serial = _issue_http01_certificate(signed_request, directory, 'example.com')
+
     page = testclient.get('/certificates')
     assert page.status_code == 200
     assert cert_serial in page.text
     assert 'example.com' in page.text
+
+
+def test_certificates_page_pagination(signed_request, directory, testclient: TestClient):
+    _issue_http01_certificate(signed_request, directory, 'page1.example.com')
+    _issue_http01_certificate(signed_request, directory, 'page2.example.com')
+
+    page1 = testclient.get('/certificates?page=1&page_size=1')
+    assert page1.status_code == 200
+    assert 'Page 1 /' in page1.text
+    assert 'Next →' in page1.text
+
+    page2 = testclient.get('/certificates?page=2&page_size=1')
+    assert page2.status_code == 200
+    assert 'Page 2 /' in page2.text
+    assert '← Previous' in page2.text
+
+    assert 'page2.example.com' in page1.text
+    assert 'page1.example.com' not in page1.text
+    assert 'page1.example.com' in page2.text
+    assert 'page2.example.com' not in page2.text
