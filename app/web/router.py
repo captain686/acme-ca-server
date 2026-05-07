@@ -4,8 +4,8 @@ from typing import Literal
 
 import db
 from config import settings
-from fastapi import APIRouter, HTTPException, Response, status
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi.responses import HTMLResponse, RedirectResponse
 from jinja2 import Environment, FileSystemLoader
 from pydantic import constr
 
@@ -41,11 +41,9 @@ if settings.web.enable_public_log:
     async def certificate_log(
         domainfilter: str = '',
         certstatus: Literal['all', 'valid', 'invalid'] = 'all',
-        page: int = 1,
-        page_size: int = 100,
+        page: int = Query(1, ge=1),
+        page_size: int = Query(100, ge=1, le=500),
     ):
-        page = max(1, page)
-        page_size = max(1, min(500, page_size))
         offset = (page - 1) * page_size
         filter_text = domainfilter.replace('*', '%')
 
@@ -107,7 +105,18 @@ if settings.web.enable_public_log:
 
         total_count = int(total_count or 0)
         total_pages = max(1, math.ceil(total_count / page_size))
-        page = min(page, total_pages)
+        if page > total_pages:
+            from urllib.parse import urlencode
+
+            query = urlencode(
+                {
+                    'domainfilter': domainfilter,
+                    'certstatus': certstatus,
+                    'page': total_pages,
+                    'page_size': page_size,
+                }
+            )
+            return RedirectResponse(url=f'/certificates?{query}', status_code=status.HTTP_302_FOUND)
 
         params = await get_default_params()
         return await template_engine.get_template('cert-log.html').render_async(

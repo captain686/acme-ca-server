@@ -72,17 +72,30 @@ def test_certificates_page_pagination(signed_request, directory, testclient: Tes
     _issue_http01_certificate(signed_request, directory, 'page1.example.com')
     _issue_http01_certificate(signed_request, directory, 'page2.example.com')
 
-    page1 = testclient.get('/certificates?page=1&page_size=1')
+    page1 = testclient.get('/certificates?domainfilter=page&page=1&page_size=1')
     assert page1.status_code == 200
-    assert 'Page 1 /' in page1.text
+    assert 'Page 1 / 2' in page1.text
     assert 'Next →' in page1.text
 
-    page2 = testclient.get('/certificates?page=2&page_size=1')
+    page2 = testclient.get('/certificates?domainfilter=page&page=2&page_size=1')
     assert page2.status_code == 200
-    assert 'Page 2 /' in page2.text
+    assert 'Page 2 / 2' in page2.text
     assert '← Previous' in page2.text
 
-    assert 'page2.example.com' in page1.text
-    assert 'page1.example.com' not in page1.text
-    assert 'page1.example.com' in page2.text
-    assert 'page2.example.com' not in page2.text
+    page1_has_1 = 'page1.example.com' in page1.text
+    page1_has_2 = 'page2.example.com' in page1.text
+    page2_has_1 = 'page1.example.com' in page2.text
+    page2_has_2 = 'page2.example.com' in page2.text
+
+    assert page1_has_1 != page1_has_2
+    assert page2_has_1 != page2_has_2
+    assert page1_has_1 != page2_has_1
+    assert page1_has_2 != page2_has_2
+
+
+def test_certificates_page_out_of_range_redirects_to_last_page(signed_request, directory, testclient: TestClient):
+    _issue_http01_certificate(signed_request, directory, 'redirect-only.example.com')
+
+    response = testclient.get('/certificates?domainfilter=redirect-only.example.com&page=999&page_size=1', follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers['location'].endswith('/certificates?domainfilter=redirect-only.example.com&certstatus=all&page=1&page_size=1')
