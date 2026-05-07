@@ -45,15 +45,18 @@ if settings.web.enable_public_log:
                     """
                     with data as (
                         select
-                            serial_number, not_valid_before, not_valid_after, revoked_at,
-                            (not_valid_after > now() and revoked_at is null) as is_valid,
-                            (not_valid_after - not_valid_before) as lifetime,
-                            (now() - not_valid_before) as age,
-                            array_agg(domain order by domain) as domains
+                            cert.serial_number,
+                            cert.not_valid_before,
+                            cert.not_valid_after,
+                            cert.revoked_at,
+                            (cert.not_valid_after > now() and cert.revoked_at is null) as is_valid,
+                            (cert.not_valid_after - cert.not_valid_before) as lifetime,
+                            (now() - cert.not_valid_before) as age,
+                            coalesce(array_agg(distinct authz.domain order by authz.domain) filter (where authz.domain is not null), '{}'::text[]) as domains
                         from certificates cert
-                        join authorizations authz on authz.order_id = cert.order_id
+                        left join authorizations authz on authz.order_id = cert.order_id
                         where ($1::text = '' or authz.domain ilike '%' || $1::text || '%')
-                        group by serial_number
+                        group by cert.serial_number, cert.not_valid_before, cert.not_valid_after, cert.revoked_at
                     )
                     select * from data
                     where ($2 = 'all' or ($2 = 'valid' and is_valid) or ($2 = 'invalid' and not is_valid))
